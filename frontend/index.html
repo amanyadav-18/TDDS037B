@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cricket Analytics — Player Performance</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; background: #eef1f5; color: #1a1a1a; }
+
+  .topbar { background: #0d1b2a; color: white; padding: 14px 24px; font-size: 18px; font-weight: 700; letter-spacing: 0.3px; }
+  .topbar .subtitle { font-size: 12px; color: #94a3b8; font-weight: 400; margin-top: 2px; }
+
+  .search-wrap { padding: 16px 24px; background: white; border-bottom: 1px solid #e2e8f0; position: relative; }
+  .search-bar { display: flex; gap: 8px; max-width: 420px; }
+  input[type="text"] { padding: 10px 14px; font-size: 14px; border-radius: 6px; border: 1px solid #d1d5db; flex: 1; }
+  button { padding: 10px 18px; font-size: 14px; border-radius: 6px; border: none; background: #0d6efd; color: white; cursor: pointer; font-weight: 600; }
+  button:hover { background: #0b5ed7; }
+
+  .autocomplete-box {
+    position: absolute; top: 58px; left: 24px; width: 420px;
+    background: white; border: 1px solid #d1d5db; border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12); max-height: 260px; overflow-y: auto;
+    z-index: 20; display: none;
+  }
+  .autocomplete-item { padding: 9px 12px; cursor: pointer; font-size: 14px; border-bottom: 1px solid #f0f0f0; }
+  .autocomplete-item:hover, .autocomplete-item.active { background: #eef2ff; }
+  .autocomplete-empty { padding: 10px 12px; font-size: 13px; color: #6b7280; }
+
+  .layout { display: flex; align-items: flex-start; padding: 20px; gap: 20px; max-width: 1300px; margin: 0 auto; }
+  .sidebar { width: 260px; flex-shrink: 0; }
+  .main { flex: 1; min-width: 0; }
+
+  .card { background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); margin-bottom: 16px; }
+  .card h3 { margin: 0 0 10px 0; font-size: 14px; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; text-transform: uppercase; letter-spacing: 0.4px; }
+
+  .section-heading { font-size: 13px; font-weight: 700; color: #0d6efd; text-transform: uppercase; letter-spacing: 0.6px; margin: 22px 0 10px 2px; }
+
+  .player-avatar { width: 100%; aspect-ratio: 1/1; background: #dbeafe; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 40px; color: #0d6efd; margin-bottom: 12px; }
+  .player-name { font-size: 18px; font-weight: 700; margin: 0 0 4px 0; }
+  .player-team { font-size: 13px; color: #6b7280; margin-bottom: 10px; }
+  .player-meta-row { display: flex; justify-content: space-between; font-size: 12px; padding: 6px 0; border-top: 1px solid #f0f0f0; }
+  .player-meta-row .label { color: #6b7280; }
+  .player-meta-row .value { font-weight: 600; }
+
+  .filter-group label { font-size: 11px; color: #6b7280; display: block; margin-top: 10px; margin-bottom: 3px; text-transform: uppercase; }
+  .filter-group select, .filter-group input { width: 100%; padding: 7px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
+  .filter-clear { margin-top: 12px; width: 100%; background: #6b7280; }
+
+  .stat-bar { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .stat-box { background: #f9fafb; padding: 12px 6px; border-radius: 8px; text-align: center; }
+  .stat-box .value { font-size: 18px; font-weight: 700; color: #0d6efd; }
+  .stat-box.bowl .value { color: #f97316; }
+  .stat-box .label { font-size: 10px; color: #6b7280; margin-top: 2px; text-transform: uppercase; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } .layout { flex-direction: column; } .sidebar { width: 100%; } }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 6px; color: #6b7280; font-weight: 600; border-bottom: 2px solid #e5e7eb; }
+  td { padding: 8px 6px; border-bottom: 1px solid #f0f0f0; }
+  tr:hover td { background: #fafafa; }
+
+  .placeholder-msg { padding: 60px 20px; text-align: center; color: #6b7280; }
+  .no-data-msg { padding: 20px; text-align: center; color: #9ca3af; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  🏏 Cricket Analytics REST API
+  <div class="subtitle">ODI Player Performance Analysis</div>
+</div>
+
+<div class="search-wrap">
+  <div class="search-bar">
+    <input type="text" id="searchBox" placeholder="Search player name (e.g. Kohli)" autocomplete="off">
+    <button onclick="searchPlayers()">Search</button>
+  </div>
+  <div class="autocomplete-box" id="autocompleteBox"></div>
+</div>
+
+<div class="layout">
+  <div class="sidebar">
+    <div class="card" id="playerCard">
+      <div class="placeholder-msg">Search and select a player to see their profile.</div>
+    </div>
+    <div class="card" id="filterCard" style="display:none;">
+      <h3>Filters</h3>
+      <div class="filter-group">
+        <label>Opponent</label>
+        <select id="filterOpponent"><option value="">All</option></select>
+
+        <label>Venue</label>
+        <select id="filterVenue"><option value="">All</option></select>
+
+        <label>From date</label>
+        <input type="date" id="filterDateFrom">
+
+        <label>To date</label>
+        <input type="date" id="filterDateTo">
+
+        <label>Last N matches</label>
+        <input type="number" id="filterLastN" placeholder="e.g. 10" min="1">
+
+        <button class="filter-clear" onclick="clearFilters()">Clear Filters</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="main" id="mainContent">
+    <div class="placeholder-msg">No player selected yet.</div>
+  </div>
+</div>
+
+<script>
+const API_BASE = "http://127.0.0.1:8000";
+let currentPlayerId = null;
+let currentSummary = null;
+let allPerformances = [];
+
+let runsChartInstance = null;
+let oppositionChartInstance = null;
+let dismissalChartInstance = null;
+let wicketsYearChartInstance = null;
+let wicketsOppChartInstance = null;
+let wicketTypeChartInstance = null;
+
+let debounceTimer = null;
+let activeSuggestionIndex = -1;
+let currentSuggestions = [];
+
+const searchBox = document.getElementById("searchBox");
+const autocompleteBox = document.getElementById("autocompleteBox");
+
+const COUNTRY_FLAGS = {
+  "India": "🇮🇳", "Australia": "🇦🇺", "England": "🏴", "Pakistan": "🇵🇰",
+  "South Africa": "🇿🇦", "New Zealand": "🇳🇿", "Sri Lanka": "🇱🇰",
+  "West Indies": "🏴‍☠️", "Bangladesh": "🇧🇩", "Afghanistan": "🇦🇫",
+  "Zimbabwe": "🇿🇼", "Ireland": "🇮🇪", "Netherlands": "🇳🇱",
+  "Scotland": "🏴", "United Arab Emirates": "🇦🇪", "Nepal": "🇳🇵",
+};
+
+searchBox.addEventListener("input", () => {
+  clearTimeout(debounceTimer);
+  const query = searchBox.value.trim();
+  if (query.length < 2) {
+    autocompleteBox.style.display = "none";
+    return;
+  }
+  debounceTimer = setTimeout(() => fetchSuggestions(query), 250);
+});
+
+searchBox.addEventListener("keydown", (e) => {
+  if (!currentSuggestions.length || autocompleteBox.style.display === "none") return;
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    activeSuggestionIndex = Math.min(activeSuggestionIndex + 1, currentSuggestions.length - 1);
+    highlightSuggestion();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    activeSuggestionIndex = Math.max(activeSuggestionIndex - 1, 0);
+    highlightSuggestion();
+  } else if (e.key === "Enter") {
+    if (activeSuggestionIndex >= 0) {
+      e.preventDefault();
+      selectSuggestion(activeSuggestionIndex);
+    } else {
+      autocompleteBox.style.display = "none";
+      searchPlayers();
+    }
+  } else if (e.key === "Escape") {
+    autocompleteBox.style.display = "none";
+  }
+});
+
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".search-wrap")) {
+    autocompleteBox.style.display = "none";
+  }
+});
+
+async function fetchSuggestions(query) {
+  try {
+    const res = await fetch(`${API_BASE}/players?search=${encodeURIComponent(query)}`);
+    if (!res.ok) {
+      currentSuggestions = [];
+      autocompleteBox.innerHTML = `<div class="autocomplete-empty">No matching players found.</div>`;
+      autocompleteBox.style.display = "block";
+      return;
+    }
+    const players = await res.json();
+    currentSuggestions = players;
+    activeSuggestionIndex = -1;
+    renderSuggestions(players);
+  } catch (err) {
+    autocompleteBox.style.display = "none";
+  }
+}
+
+function renderSuggestions(players) {
+  if (!players.length) {
+    autocompleteBox.innerHTML = `<div class="autocomplete-empty">No matching players found.</div>`;
+    autocompleteBox.style.display = "block";
+    return;
+  }
+  autocompleteBox.innerHTML = players.map((p, idx) => `
+    <div class="autocomplete-item" data-idx="${idx}" onclick="selectSuggestion(${idx})">
+      ${p.name} <span style="color:#6b7280;font-size:12px;">(${p.matches_played} ODIs)</span>
+    </div>
+  `).join("");
+  autocompleteBox.style.display = "block";
+}
+
+function highlightSuggestion() {
+  document.querySelectorAll(".autocomplete-item").forEach((el, idx) => {
+    el.classList.toggle("active", idx === activeSuggestionIndex);
+  });
+}
+
+function selectSuggestion(idx) {
+  const chosen = currentSuggestions[idx];
+  searchBox.value = chosen.name;
+  autocompleteBox.style.display = "none";
+  selectPlayer(chosen.player_id);
+}
+
+async function searchPlayers() {
+  const query = searchBox.value.trim();
+  autocompleteBox.style.display = "none";
+  if (query.length < 2) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/players?search=${encodeURIComponent(query)}`);
+    if (!res.ok) return;
+    const players = await res.json();
+    if (players.length) {
+      selectPlayer(players[0].player_id);
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function selectPlayer(playerId) {
+  currentPlayerId = playerId;
+
+  document.getElementById("playerCard").innerHTML = `<div class="placeholder-msg">Loading player...</div>`;
+  document.getElementById("mainContent").innerHTML = `<div class="placeholder-msg">Loading match data...</div>`;
+
+  const [summaryRes, perfRes] = await Promise.all([
+    fetch(`${API_BASE}/players/${playerId}/summary`),
+    fetch(`${API_BASE}/players/${playerId}/performances`),
+  ]);
+
+  currentSummary = await summaryRes.json();
+  allPerformances = await perfRes.json();
+
+  renderPlayerCard(currentSummary);
+  setupFilterOptions(allPerformances);
+  document.getElementById("filterCard").style.display = "block";
+  applyFiltersAndRender();
+}
+
+function renderPlayerCard(summary) {
+  const flag = COUNTRY_FLAGS[summary.team] || "🏳️";
+  const role = inferRole(summary);
+  document.getElementById("playerCard").innerHTML = `
+    <div class="player-avatar">🏏</div>
+    <div class="player-name">${summary.name}</div>
+    <div class="player-team">${flag} ${summary.team ?? "Unknown"}</div>
+    <div class="player-meta-row"><span class="label">Format</span><span class="value">ODI</span></div>
+    <div class="player-meta-row"><span class="label">Role</span><span class="value">${role}</span></div>
+    <div class="player-meta-row"><span class="label">Matches</span><span class="value">${summary.matches_played}</span></div>
+  `;
+}
+
+function inferRole(summary) {
+  const battedRatio = summary.innings_batted / Math.max(summary.matches_played, 1);
+  const bowledRatio = summary.innings_bowled / Math.max(summary.matches_played, 1);
+  if (bowledRatio > 0.5 && battedRatio > 0.5) return "All-rounder";
+  if (bowledRatio > 0.5) return "Bowler";
+  return "Batsman";
+}
+
+function setupFilterOptions(performances) {
+  const opponents = [...new Set(performances.map(m => m.opponent).filter(Boolean))].sort();
+  const venues = [...new Set(performances.map(m => m.venue).filter(Boolean))].sort();
+
+  const oppSelect = document.getElementById("filterOpponent");
+  oppSelect.innerHTML = `<option value="">All</option>` + opponents.map(o => `<option value="${o}">${o}</option>`).join("");
+
+  const venueSelect = document.getElementById("filterVenue");
+  venueSelect.innerHTML = `<option value="">All</option>` + venues.map(v => `<option value="${v}">${v}</option>`).join("");
+
+  oppSelect.value = "";
+  venueSelect.value = "";
+  document.getElementById("filterDateFrom").value = "";
+  document.getElementById("filterDateTo").value = "";
+  document.getElementById("filterLastN").value = "";
+
+  oppSelect.onchange = applyFiltersAndRender;
+  venueSelect.onchange = applyFiltersAndRender;
+  document.getElementById("filterDateFrom").onchange = applyFiltersAndRender;
+  document.getElementById("filterDateTo").onchange = applyFiltersAndRender;
+  document.getElementById("filterLastN").oninput = () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(applyFiltersAndRender, 400);
+  };
+}
+
+function clearFilters() {
+  document.getElementById("filterOpponent").value = "";
+  document.getElementById("filterVenue").value = "";
+  document.getElementById("filterDateFrom").value = "";
+  document.getElementById("filterDateTo").value = "";
+  document.getElementById("filterLastN").value = "";
+  applyFiltersAndRender();
+}
+
+function applyFiltersAndRender() {
+  const opponent = document.getElementById("filterOpponent").value;
+  const venue = document.getElementById("filterVenue").value;
+  const dateFrom = document.getElementById("filterDateFrom").value;
+  const dateTo = document.getElementById("filterDateTo").value;
+  const lastN = document.getElementById("filterLastN").value;
+
+  let filtered = [...allPerformances];
+  if (opponent) filtered = filtered.filter(m => m.opponent === opponent);
+  if (venue) filtered = filtered.filter(m => m.venue === venue);
+  if (dateFrom) filtered = filtered.filter(m => m.date >= dateFrom);
+  if (dateTo) filtered = filtered.filter(m => m.date <= dateTo);
+  if (lastN) filtered = filtered.slice(-parseInt(lastN, 10));
+
+  const isFiltered = !!(opponent || venue || dateFrom || dateTo || lastN);
+  const stats = isFiltered ? computeSummaryFromPerformances(filtered) : currentSummary;
+
+  renderMain(stats, filtered, isFiltered);
+}
+
+function computeSummaryFromPerformances(performances) {
+  const battedMatches = performances.filter(m => m.dismissal !== null);
+  const totalRuns = performances.reduce((sum, m) => sum + m.runs_scored, 0);
+  const totalBalls = performances.reduce((sum, m) => sum + m.balls_faced, 0);
+  const dismissedCount = battedMatches.filter(m => m.dismissal !== 'not out').length;
+  const notOuts = battedMatches.filter(m => m.dismissal === 'not out').length;
+  const highestScore = performances.length ? Math.max(...performances.map(m => m.runs_scored)) : 0;
+  const hundreds = performances.filter(m => m.runs_scored >= 100).length;
+  const fifties = performances.filter(m => m.runs_scored >= 50 && m.runs_scored < 100).length;
+
+  const battingAverage = dismissedCount > 0 ? (totalRuns / dismissedCount).toFixed(2) : '-';
+  const strikeRate = totalBalls > 0 ? ((totalRuns / totalBalls) * 100).toFixed(2) : '-';
+
+  const totalWickets = performances.reduce((sum, m) => sum + m.wickets_taken, 0);
+  const totalRunsConceded = performances.reduce((sum, m) => sum + m.runs_conceded, 0);
+  const legalBallsBowled = performances.reduce((sum, m) => sum + Math.floor(m.overs_bowled) * 6 + Math.round((m.overs_bowled % 1) * 10), 0);
+
+  const bowlingAverage = totalWickets > 0 ? (totalRunsConceded / totalWickets).toFixed(2) : '-';
+  const economy = legalBallsBowled > 0 ? (totalRunsConceded / (legalBallsBowled / 6)).toFixed(2) : '-';
+
+  let bestBowling = '-';
+  let bestWkts = -1, bestRuns = null;
+  performances.forEach(m => {
+    if (m.wickets_taken > bestWkts || (m.wickets_taken === bestWkts && (bestRuns === null || m.runs_conceded < bestRuns))) {
+      bestWkts = m.wickets_taken;
+      bestRuns = m.runs_conceded;
+    }
+  });
+  if (bestWkts >= 0) bestBowling = `${bestWkts}/${bestRuns}`;
+
+  return {
+    matches_played: performances.length,
+    total_runs: totalRuns,
+    highest_score: highestScore,
+    batting_average: battingAverage,
+    strike_rate: strikeRate,
+    hundreds, fifties,
+    total_wickets: totalWickets,
+    bowling_average: bowlingAverage,
+    economy,
+    best_bowling: bestBowling,
+  };
+}
+
+function renderMain(stats, performances, isFiltered) {
+  const container = document.getElementById("mainContent");
+  const hasBowlingData = performances.some(m => m.overs_bowled > 0);
+
+  container.innerHTML = `
+    <div class="card">
+      <h3>${isFiltered ? "Filtered Stats" : "Career Stats (ODI)"}</h3>
+      <div class="stat-bar">
+        <div class="stat-box"><div class="value">${stats.matches_played}</div><div class="label">Matches</div></div>
+        <div class="stat-box"><div class="value">${stats.total_runs}</div><div class="label">Runs</div></div>
+        <div class="stat-box"><div class="value">${stats.batting_average}</div><div class="label">Avg</div></div>
+        <div class="stat-box"><div class="value">${stats.strike_rate}</div><div class="label">SR</div></div>
+        <div class="stat-box"><div class="value">${stats.highest_score}</div><div class="label">HS</div></div>
+        <div class="stat-box"><div class="value">${stats.hundreds}</div><div class="label">100s</div></div>
+        <div class="stat-box"><div class="value">${stats.fifties}</div><div class="label">50s</div></div>
+        <div class="stat-box bowl"><div class="value">${stats.total_wickets}</div><div class="label">Wkts</div></div>
+        <div class="stat-box bowl"><div class="value">${stats.bowling_average}</div><div class="label">Bwl Avg</div></div>
+        <div class="stat-box bowl"><div class="value">${stats.economy}</div><div class="label">Econ</div></div>
+        <div class="stat-box bowl"><div class="value">${stats.best_bowling}</div><div class="label">Best</div></div>
+      </div>
+    </div>
+
+    <div class="section-heading">🏏 Batting</div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Runs by Year</h3>
+        <canvas id="runsPerYearChart" height="180"></canvas>
+      </div>
+      <div class="card">
+        <h3>Recent Batting Form (Last 5)</h3>
+        <table id="recentBattingTable"></table>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Runs by Opponent</h3>
+        <canvas id="oppositionChart" height="180"></canvas>
+      </div>
+      <div class="card">
+        <h3>Dismissal Distribution</h3>
+        <canvas id="dismissalChart" height="180"></canvas>
+      </div>
+    </div>
+
+    <div class="section-heading">🎯 Bowling</div>
+    ${hasBowlingData ? `
+    <div class="grid-2">
+      <div class="card">
+        <h3>Wickets by Year</h3>
+        <canvas id="wicketsYearChart" height="180"></canvas>
+      </div>
+      <div class="card">
+        <h3>Recent Bowling Form (Last 5)</h3>
+        <table id="recentBowlingTable"></table>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Wickets by Opponent</h3>
+        <canvas id="wicketsOppChart" height="180"></canvas>
+      </div>
+      <div class="card">
+        <h3>Wicket Type Distribution</h3>
+        <canvas id="wicketTypeChart" height="180"></canvas>
+      </div>
+    </div>
+    ` : `<div class="card"><div class="no-data-msg">This player has no bowling record in the selected data.</div></div>`}
+
+    <div class="card">
+      <h3>Match History (${performances.length} matches)</h3>
+      <div style="max-height:400px; overflow-y:auto;">
+        <table>
+          <tr><th>Date</th><th>Opponent</th><th>Venue</th><th>Runs</th><th>Balls</th><th>SR</th><th>Bowling</th></tr>
+          ${[...performances].reverse().map(m => `
+            <tr>
+              <td>${m.date}</td>
+              <td>${m.opponent ?? '-'}</td>
+              <td>${m.venue ?? '-'}</td>
+              <td>${m.runs_scored}${m.dismissal === 'not out' ? '*' : ''}</td>
+              <td>${m.balls_faced}</td>
+              <td>${m.strike_rate ?? '-'}</td>
+              <td>${m.overs_bowled > 0 ? `${m.wickets_taken}-${m.runs_conceded} (${m.overs_bowled} ov)` : '-'}</td>
+            </tr>
+          `).join("")}
+        </table>
+      </div>
+    </div>
+  `;
+
+  renderRecentBattingTable(performances);
+  renderBattingCharts(performances);
+
+  if (hasBowlingData) {
+    renderRecentBowlingTable(performances);
+    renderBowlingCharts(performances);
+  }
+}
+
+function renderRecentBattingTable(performances) {
+  const recent = [...performances].slice(-5).reverse();
+  document.getElementById("recentBattingTable").innerHTML = `
+    <tr><th>Score</th><th>Opponent</th></tr>
+    ${recent.map(m => `
+      <tr>
+        <td><strong>${m.runs_scored}${m.dismissal === 'not out' ? '*' : ''}</strong> (${m.balls_faced})</td>
+        <td>${m.opponent ?? '-'}</td>
+      </tr>
+    `).join("")}
+  `;
+}
+
+function renderRecentBowlingTable(performances) {
+  const recentBowled = [...performances].filter(m => m.overs_bowled > 0).slice(-5).reverse();
+  document.getElementById("recentBowlingTable").innerHTML = `
+    <tr><th>Figures</th><th>Opponent</th></tr>
+    ${recentBowled.length ? recentBowled.map(m => `
+      <tr>
+        <td><strong>${m.wickets_taken}-${m.runs_conceded}</strong> (${m.overs_bowled} ov)</td>
+        <td>${m.opponent ?? '-'}</td>
+      </tr>
+    `).join("") : `<tr><td colspan="2" class="no-data-msg">No recent bowling data</td></tr>`}
+  `;
+}
+
+function renderBattingCharts(performances) {
+  const runsByYear = {};
+  performances.forEach(m => {
+    const year = m.date.slice(0, 4);
+    runsByYear[year] = (runsByYear[year] || 0) + m.runs_scored;
+  });
+  const years = Object.keys(runsByYear).sort();
+  const runsValues = years.map(y => runsByYear[y]);
+
+  if (runsChartInstance) runsChartInstance.destroy();
+  runsChartInstance = new Chart(document.getElementById("runsPerYearChart"), {
+    type: "line",
+    data: {
+      labels: years,
+      datasets: [{ label: "Runs", data: runsValues, borderColor: "#0d6efd", backgroundColor: "rgba(13,110,253,0.1)", fill: true, tension: 0.3 }]
+    },
+    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+  });
+
+  const runsByOpp = {};
+  performances.forEach(m => {
+    const opp = m.opponent || "Unknown";
+    runsByOpp[opp] = (runsByOpp[opp] || 0) + m.runs_scored;
+  });
+  const sortedOpp = Object.entries(runsByOpp).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const oppLabels = sortedOpp.map(e => e[0]);
+  const oppValues = sortedOpp.map(e => e[1]);
+
+  if (oppositionChartInstance) oppositionChartInstance.destroy();
+  oppositionChartInstance = new Chart(document.getElementById("oppositionChart"), {
+    type: "bar",
+    data: { labels: oppLabels, datasets: [{ label: "Runs", data: oppValues, backgroundColor: "#0d6efd" }] },
+    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+  });
+
+  const dismissalCounts = {};
+  performances.forEach(m => {
+    if (m.dismissal && m.dismissal !== "not out") {
+      dismissalCounts[m.dismissal] = (dismissalCounts[m.dismissal] || 0) + 1;
+    }
+  });
+  const dismissalLabels = Object.keys(dismissalCounts);
+  const dismissalValues = Object.values(dismissalCounts);
+  const colors = ["#0d6efd", "#f97316", "#6366f1", "#ec4899", "#14b8a6", "#facc15", "#ef4444"];
+
+  if (dismissalChartInstance) dismissalChartInstance.destroy();
+  dismissalChartInstance = new Chart(document.getElementById("dismissalChart"), {
+    type: "doughnut",
+    data: { labels: dismissalLabels, datasets: [{ data: dismissalValues, backgroundColor: colors }] },
+    options: { plugins: { legend: { position: "right" } } }
+  });
+}
+
+function renderBowlingCharts(performances) {
+  const wicketsByYear = {};
+  performances.forEach(m => {
+    const year = m.date.slice(0, 4);
+    wicketsByYear[year] = (wicketsByYear[year] || 0) + m.wickets_taken;
+  });
+  const years = Object.keys(wicketsByYear).sort();
+  const wicketsValues = years.map(y => wicketsByYear[y]);
+
+  if (wicketsYearChartInstance) wicketsYearChartInstance.destroy();
+  wicketsYearChartInstance = new Chart(document.getElementById("wicketsYearChart"), {
+    type: "line",
+    data: {
+      labels: years,
+      datasets: [{ label: "Wickets", data: wicketsValues, borderColor: "#f97316", backgroundColor: "rgba(249,115,22,0.1)", fill: true, tension: 0.3 }]
+    },
+    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+  });
+
+  const wicketsByOpp = {};
+  performances.forEach(m => {
+    const opp = m.opponent || "Unknown";
+    wicketsByOpp[opp] = (wicketsByOpp[opp] || 0) + m.wickets_taken;
+  });
+  const sortedOpp = Object.entries(wicketsByOpp).filter(e => e[1] > 0).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const oppLabels = sortedOpp.map(e => e[0]);
+  const oppValues = sortedOpp.map(e => e[1]);
+
+  if (wicketsOppChartInstance) wicketsOppChartInstance.destroy();
+  wicketsOppChartInstance = new Chart(document.getElementById("wicketsOppChart"), {
+    type: "bar",
+    data: { labels: oppLabels, datasets: [{ label: "Wickets", data: oppValues, backgroundColor: "#f97316" }] },
+    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+  });
+
+  const wicketTypeCounts = {};
+  performances.forEach(m => {
+    (m.wicket_kinds || []).forEach(kind => {
+      wicketTypeCounts[kind] = (wicketTypeCounts[kind] || 0) + 1;
+    });
+  });
+  const typeLabels = Object.keys(wicketTypeCounts);
+  const typeValues = Object.values(wicketTypeCounts);
+  const colors = ["#f97316", "#0d6efd", "#6366f1", "#ec4899", "#14b8a6", "#facc15", "#ef4444"];
+
+  if (wicketTypeChartInstance) wicketTypeChartInstance.destroy();
+  wicketTypeChartInstance = new Chart(document.getElementById("wicketTypeChart"), {
+    type: "doughnut",
+    data: { labels: typeLabels, datasets: [{ data: typeValues, backgroundColor: colors }] },
+    options: { plugins: { legend: { position: "right" } } }
+  });
+}
+</script>
+
+</body>
+</html>
